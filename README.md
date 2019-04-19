@@ -1,2 +1,2 @@
-# wine-recommendation-system
-INF 553: Final Project - Wine Recommendation System
+# movie-recommendation-system
+INF 553: Final Project - Movie Recommendation System
