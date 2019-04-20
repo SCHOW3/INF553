@@ -9,16 +9,17 @@ from collections import defaultdict
 from pyspark import SparkContext
 
 if __name__ == "__main__":
-    if len(sys.argv) < 1:
+    if len(sys.argv) != 2:
+        print("usage: movie_recommendation_system.py <input_data>", file=sys.stderr)
         sys.exit(-1)
 
     sc = SparkContext(appName="project")
 
-    raw_data = sc.textFile("tmdb_5000_movies.csv")
+    raw_data = sc.textFile(sys.argv[1])
     header = raw_data.take(1)[0]
     data = raw_data.filter(lambda line: line != header)\
         .map(lambda line: line.split(","))
 
-    print(data.collect())
+    print(data.take(3))
     
 
