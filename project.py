@@ -20,6 +20,9 @@ if __name__ == "__main__":
     data = raw_data.filter(lambda line: line != header)\
         .map(lambda line: line.split(","))
 
-    print(data.take(3))
+    # Now we need to Identify Pairs?
+    print(type(data))
+
+    # print(data.take(3))
     
 
