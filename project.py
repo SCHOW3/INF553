@@ -6,7 +6,8 @@ import pandas as pd
 from operator import add
 from collections import defaultdict
 
-from pyspark import SparkContext
+from pyspark.sql import SparkSession
+# from pyspark import SparkContext
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
@@ -24,5 +25,7 @@ if __name__ == "__main__":
     print(type(data))
 
     # print(data.take(3))
+
     
+    df.show()
 
