@@ -3,8 +3,9 @@ from __future__ import print_function
 import sys
 from operator import add
 from collections import defaultdict
-
+import math
 from pyspark.sql import SparkSession
+import operator
 
 def printf(p):
     print("p: ", list(p))
@@ -21,6 +22,13 @@ def create_movie_user(lists_of_list):
         to_return[int(l[1])].append(int(l[0]))
     return to_return
 
+def create_user_movie_ratings(lists_of_list):
+    to_return = defaultdict(dict)
+    for l in lists_of_list:
+        to_return[int(l[0])][int(l[1])] = float(l[2])
+        # to_return[int(l[0])].append({int(l[1]): float(l[2]}))
+    return to_return
+
 def get_movie_ids(movies):
     res = defaultdict()
     for movie in movies:
@@ -29,20 +37,20 @@ def get_movie_ids(movies):
 
 
 def calculate_hash(i, x):
-    return (5*x + 13*i) % 100
+    return (5*x + 13*i) % 27000
 
 def get_signatures(partition):
     # return list of lists which is the signatures
     signatures = []
     for user, movies in partition:
-        user_signature = [100 for x in range(20)]
+        user_signature = [sys.maxint for x in range(20)]
         for movie in movies:
             for i in range(20):
                 hash_value = calculate_hash(int(i), int(movie))
                 if(hash_value < user_signature[i]):
                     user_signature[i] = hash_value
         signatures.append((user, user_signature))
-    print("signatures", signatures)
+    # print("signatures", signatures)
     return signatures
 
 def convert_user_signatures_to_matrix(list_of_user_signatures):
@@ -67,58 +75,72 @@ def calculate_candidate_pairs(iterator):
             if(first_user == second_user):
                 candidate_pairs.append((key_index_outer + 1, key_index_inner))
                 candidate_pairs.append((key_index_inner, key_index_outer + 1))
+    # print(candidate_pairs)
     return candidate_pairs
 
+def calc_cosine_similarity(list_candidate_pairs, user_movie_ratings):
+    # user_to_similar_users = defaultdict(list)
+    user_to_potential_sim = defaultdict(list)
+    for A, similar_users in list_candidate_pairs:
+        for B in similar_users:
+            A_dict = user_movie_ratings[A]
+            B_dict = user_movie_ratings[B]
+            A_sum = 0.0
+            B_sum = 0.0
+            overlap_sum_num = 0.0
+            for movie, rating in A_dict.items():
+                if movie in B_dict:
+                    overlap_sum_num += rating * B_dict[movie]
+                A_sum += rating**2
+            for movie, rating in B_dict.items():
+                B_sum += rating**2
+            denom = math.sqrt(A_sum) * math.sqrt(B_sum)
+            cos_sim = overlap_sum_num/denom
+            user_to_potential_sim[A].append((B, cos_sim))
+        pairs = user_to_potential_sim[A]
+        pairs.sort(key=lambda tup: tup[1], reverse=True)
+        user_to_potential_sim[A] = pairs
+    return user_to_potential_sim
 
-def calculate_jaccard_similarities(list_candidate_pairs, user_to_movie_dict):
-    user_to_similar_users = defaultdict(list)
-    for user, similar_users in list_candidate_pairs:
-        # Need to calculate Jaccard of this user against all similar users
-        for similar_user in similar_users:
-            intersection = len(list(set(user_to_movie_dict[user]).intersection(user_to_movie_dict[similar_user])))
-            union = (len(user_to_movie_dict[user]) + len(user_to_movie_dict[similar_user])) - intersection
-            jaccard_similarity = float(intersection/union)
-            user_to_similar_users[user].append((jaccard_similarity, similar_user))
-        # Need to sort the list of similar users by jaccard_similarity_values
-        user_to_similar_users[user] = sorted(user_to_similar_users[user])
-    return user_to_similar_users
+def find_recommendations(cosine_sim, user_to_movie_dict):
+    # print(user_to_movie_dict)
+    users = cosine_sim.keys()
+    users.sort()
+    result = defaultdict(list)
+    for A in users:
+        movies_watched = {}
+        for B in cosine_sim[A]:
+            for movie in user_to_movie_dict[B[0]]:
+                if movie in movies_watched:
+                    movies_watched[movie] += B[1] + 1
+                else:
+                    movies_watched[movie] = B[1] + 1
+        
+        sorted_movies = sorted(movies_watched.items(), key=operator.itemgetter(1))
+        sorted_movies.reverse()
+        if len(sorted_movies) > 10:
+            result[A].extend(sorted_movies[:10])
+        else:
+            result[A].extend(sorted_movies)
 
-    
-def find_recommendations(jaccard_similarities, user_to_movie_dict):
-    user_list = jaccard_similarities.keys()
-    user_list.sort()
-    user_to_recommended_movies = defaultdict(list)
-    for user in user_list:
-        count_to_movie = defaultdict(list)
-        movie_count = {}
-        movie_count = defaultdict(lambda: 0, movie_count)
-        similar_user_list = jaccard_similarities[user]
-        for similar_user in similar_user_list:
-            movies_watched = user_to_movie_dict[similar_user[1]]
-            for movie in movies_watched:
-                movie_count[movie] = movie_count[movie] + 1
-            for movie, count in sorted(movie_count.items(), key = movie_count.get, reverse = True):
-                count_to_movie[count].append(movie)
-            count_to_movie_keys = count_to_movie.keys()
-            count_to_movies_keys = sorted(count_to_movie_keys, reverse = True)
-            for key in count_to_movies_keys:
-                values_to_be_sorted = count_to_movie[key]
-                values_sorted = sorted(values_to_be_sorted)
-                for value in values_sorted:
-                    if(len(user_to_recommended_movies[user]) < 3):
-                        user_to_recommended_movies[user].append(value)
-    return user_to_recommended_movies
+    return result
+
+def create_user_to_movie_names_list(recommendation_list, movies):
+    result = defaultdict(list)
+    for user, movie_id_list in recommendation_list.items():
+        for movie_id, score in movie_id_list:
+            movie_name = movies[movie_id]
+            result[user].append(movie_name)
+    return result
 
 def write_to_output_file(recommendation_list, output_file):
     f = open(output_file, "w+")
-    # print("output_file", output_file)
     keylist = recommendation_list.keys()
     keylist.sort()
     for key in keylist:
-        value_list = recommendation_list[key]
-        value_string = ','.join([str(i) for i in value_list])
-        output_string = "U"+str(key)+","+value_string
-        # print("output_string: ", output_string)
+        movies = recommendation_list[key]
+        movies_string = ', '.join([movie.encode("utf-8") for movie in movies])
+        output_string = "User "+str(key)+": "+movies_string
         f.write("%s\n" % output_string)
     f.close()
 
@@ -136,13 +158,14 @@ if __name__ == "__main__":
 
     user_to_movie_lines = spark.read.text(sys.argv[1]).rdd.map(lambda r: r[0]).map(lambda x: x.split(',')).collect()
 
-    movie_lines = spark.read.text(sys.argv[2]).rdd.map(lambda r: r[0]).map(lambda x: x.split(',')).collect()
-    # movies = get_movie_ids(movie_lines)
+    movie_lines = spark.read.text(sys.argv[2]).rdd.map(lambda r: r[0]).map(lambda x: x.split(',', 1)).collect()
+    movies = get_movie_ids(movie_lines)
     # print(movies)
+
     user_to_movie_dict = create_user_movie(user_to_movie_lines)
     movie_to_user_dict = create_movie_user(user_to_movie_lines)
-    # print(user_to_movie_dict)
-    # print(movie_to_user_dict)
+    user_movie_ratings = create_user_movie_ratings(user_to_movie_lines)
+    # print(user_movie_ratings)
 
     # time to make the signature matrix
     parallized_movie_to_user = sc.parallelize(movie_to_user_dict.items(), 2)
@@ -156,11 +179,15 @@ if __name__ == "__main__":
     candidate_pairs = parallized_signature_bands.mapPartitions(calculate_candidate_pairs)\
         .distinct().groupByKey().sortByKey(True)\
         .collect()
+    # print(candidate_pairs)
     
-    jaccard_similarities = calculate_jaccard_similarities(candidate_pairs, user_to_movie_dict)
-    recommendation_list = find_recommendations(jaccard_similarities, user_to_movie_dict)
-
-    write_to_output_file(recommendation_list, sys.argv[3])
+    # jaccard_similarities = calculate_jaccard_similarities(candidate_pairs, user_to_movie_dict)
+    cosine_sim = calc_cosine_similarity(candidate_pairs, user_movie_ratings)
+    # recommendation_list = find_recommendations(cosine_sim, user_to_movie_dict)
+    recommendation_list = find_recommendations(cosine_sim, user_to_movie_dict)
+    user_to_movie_names_list = create_user_to_movie_names_list(recommendation_list, movies)
+    print(user_to_movie_names_list)
+    write_to_output_file(user_to_movie_names_list, sys.argv[3])
     # print(recommendation_list)
 
     spark.stop()
