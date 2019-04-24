@@ -32,7 +32,8 @@ def create_user_movie_ratings(lists_of_list):
 def get_movie_ids(movies):
     res = defaultdict()
     for movie in movies:
-        res[int(movie[0])] = movie[1]
+        # print(movie)
+        res[int(movie[0])] = (",".join(movie[1][:-1]), list(movie[1][-1].split("|")))
     return res
 
 
@@ -78,7 +79,48 @@ def calculate_candidate_pairs(iterator):
     # print(candidate_pairs)
     return candidate_pairs
 
-def calc_cosine_similarity(list_candidate_pairs, user_movie_ratings):
+def calculate_genre_co_sim(user_A, user_B, movies_A, movies_B, movies):
+    # calculate the jaccard based on the genres the movies are? do it per movie????
+    genre_percentages = defaultdict(dict)
+    genres = set()
+    for movie in movies_A:
+        for genre in movies[movie][1]:
+            genres.add(genre)
+            if "A" in genre_percentages[genre]:
+                genre_percentages[genre]["A"] += 1
+            else:
+                genre_percentages[genre]["A"] = 1
+    for movie in movies_B:
+        for genre in movies[movie][1]:
+            if "B" in genre_percentages[genre]:
+                genre_percentages[genre]["B"] += 1
+            else:
+                genre_percentages[genre]["B"] = 1
+    # print("number of moviesA, B:", len(movies_A), len(movies_B), 1/len(movies_A), 1/len(movies_B))
+    # print("genre_percentages", genre_percentages)
+    # print("# of genres", len(genres))
+    # print("# of keys", len(genre_percentages.keys()))
+            # print(genre)
+    cos_sin_numer = 0.0
+    cos_sin_denom_A = 0.0
+    cos_sin_denom_B = 0.0
+    for genre, dic in genre_percentages.items():
+        if len(dic.keys()) == 2:
+            a_contribution = float(dic["A"]*100/len(movies_A))
+            b_contribution = float(dic["B"]*100/len(movies_B))
+            # print("contributions", a_contribution, b_contribution)
+            cos_sin_numer += a_contribution * b_contribution
+        for user, count in dic.items():
+            if user == "A":
+                cos_sin_denom_A += (count*100/len(movies_A))**2
+            else:
+                cos_sin_denom_B += (count*100/len(movies_B))**2
+    denom = math.sqrt(cos_sin_denom_A) * math.sqrt(cos_sin_denom_B)
+    cos_sim_genre = cos_sin_numer/denom
+    # print(cos_sim_genre)
+    return cos_sim_genre
+
+def calc_cosine_similarity(list_candidate_pairs, user_movie_ratings, movies):
     # user_to_similar_users = defaultdict(list)
     user_to_potential_sim = defaultdict(list)
     for A, similar_users in list_candidate_pairs:
@@ -96,7 +138,9 @@ def calc_cosine_similarity(list_candidate_pairs, user_movie_ratings):
                 B_sum += rating**2
             denom = math.sqrt(A_sum) * math.sqrt(B_sum)
             cos_sim = overlap_sum_num/denom
-            user_to_potential_sim[A].append((B, cos_sim))
+            # Jaccard Similarity of the movie genres get added here. 
+            genre_sim = calculate_genre_co_sim(A, B, A_dict.keys(), B_dict.keys(), movies)
+            user_to_potential_sim[A].append((B, cos_sim+genre_sim))
         pairs = user_to_potential_sim[A]
         pairs.sort(key=lambda tup: tup[1], reverse=True)
         user_to_potential_sim[A] = pairs
@@ -139,7 +183,9 @@ def write_to_output_file(recommendation_list, output_file):
     keylist.sort()
     for key in keylist:
         movies = recommendation_list[key]
-        movies_string = ', '.join([movie.encode("utf-8") for movie in movies])
+        # print(movies)
+        # print("movie[0]", movies[0])
+        movies_string = ', '.join([movie[0].encode("utf-8") for movie in movies])
         output_string = "User "+str(key)+": "+movies_string
         f.write("%s\n" % output_string)
     f.close()
@@ -158,9 +204,11 @@ if __name__ == "__main__":
 
     user_to_movie_lines = spark.read.text(sys.argv[1]).rdd.map(lambda r: r[0]).map(lambda x: x.split(',')).collect()
 
-    movie_lines = spark.read.text(sys.argv[2]).rdd.map(lambda r: r[0]).map(lambda x: x.split(',', 1)).collect()
+    movie_lines = spark.read.text(sys.argv[2]).rdd.map(lambda r: r[0]).map(lambda x: x.encode("ascii", "ignore").split(',', 1)).map(lambda x: (x[0], x[1].split(',', -1))).collect()
+    # print(movie_lines[3933])
     movies = get_movie_ids(movie_lines)
-    # print(movies)
+    # print(movies[4027])
+    # exit()
 
     user_to_movie_dict = create_user_movie(user_to_movie_lines)
     movie_to_user_dict = create_movie_user(user_to_movie_lines)
@@ -180,13 +228,12 @@ if __name__ == "__main__":
         .distinct().groupByKey().sortByKey(True)\
         .collect()
     # print(candidate_pairs)
-    
-    # jaccard_similarities = calculate_jaccard_similarities(candidate_pairs, user_to_movie_dict)
-    cosine_sim = calc_cosine_similarity(candidate_pairs, user_movie_ratings)
+
+    cosine_sim = calc_cosine_similarity(candidate_pairs, user_movie_ratings, movies)
     # recommendation_list = find_recommendations(cosine_sim, user_to_movie_dict)
     recommendation_list = find_recommendations(cosine_sim, user_to_movie_dict)
     user_to_movie_names_list = create_user_to_movie_names_list(recommendation_list, movies)
-    print(user_to_movie_names_list)
+    # print(user_to_movie_names_list)
     write_to_output_file(user_to_movie_names_list, sys.argv[3])
     # print(recommendation_list)
 
