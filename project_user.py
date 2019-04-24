@@ -40,7 +40,6 @@ def get_movie_ids(movies):
         res[int(movie[0])] = movie[1]
     return res
 
-
 def calculate_hash(i, x):
     return (5*x + 13*i) % 27000
 
@@ -112,21 +111,23 @@ def find_recommendations(cosine_sim, user_to_movie_dict):
     users = cosine_sim.keys()
     users.sort()
     result = defaultdict(list)
-    for A in users:
-        movies_watched = {}
-        for B in cosine_sim[A]:
-            for movie in user_to_movie_dict[B[0]]:
-                if movie in movies_watched:
-                    movies_watched[movie] += B[1] + 1
-                else:
-                    movies_watched[movie] = B[1] + 1
-        
-        sorted_movies = sorted(movies_watched.items(), key=operator.itemgetter(1))
-        sorted_movies.reverse()
-        if len(sorted_movies) > 10:
-            result[A].extend(sorted_movies[:10])
-        else:
-            result[A].extend(sorted_movies)
+    # for A in users:
+    A = users[0]
+    print(A)
+    movies_watched = {}
+    for B in cosine_sim[A]:
+        for movie in user_to_movie_dict[B[0]]:
+            if movie in movies_watched:
+                movies_watched[movie] += B[1] + 1
+            else:
+                movies_watched[movie] = B[1] + 1
+    
+    sorted_movies = sorted(movies_watched.items(), key=operator.itemgetter(1))
+    sorted_movies.reverse()
+    if len(sorted_movies) > 10:
+        result[A].extend(sorted_movies[:10])
+    else:
+        result[A].extend(sorted_movies)
 
     return result
 
@@ -144,9 +145,11 @@ def write_to_output_file(recommendation_list, output_file):
     keylist.sort()
     for key in keylist:
         movies = recommendation_list[key]
-        movies_string = ', '.join([movie.encode("utf-8") for movie in movies])
-        output_string = "User "+str(key)+": "+movies_string
-        f.write("%s\n" % output_string)
+        for movie in movies:
+            f.write(movie.encode("utf-8") + "\n")
+        # movies_string = ', '.join([movie.encode("utf-8") for movie in movies])
+        # output_string = "User "+str(key)+": "+movies_string
+        # f.write("%s\n" % output_string)
     f.close()
 
 if __name__ == "__main__":

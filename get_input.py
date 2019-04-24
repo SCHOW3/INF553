@@ -38,5 +38,5 @@ if __name__ == "__main__":
         movies.append(movie_data[genre3 - 1][n - 1])
     f = open("user_input.txt", "w+")
     for movie in movies:
-        f.write("0," + str(movie) + ",5.0\n")
+        f.write("0," + str(movie) + ",5\n")
     f.close()
