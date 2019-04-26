@@ -158,6 +158,8 @@ def find_recommendations(cosine_sim, user_to_movie_dict):
     result = defaultdict(list)
     # for A in users:
     A = users[0]
+    print("A", A)
+    print("B", cosine_sim[A])
     movies_watched = {}
     for B in cosine_sim[A]:
         for movie in user_to_movie_dict[B[0]]:
@@ -168,10 +170,15 @@ def find_recommendations(cosine_sim, user_to_movie_dict):
     
     sorted_movies = sorted(movies_watched.items(), key=operator.itemgetter(1))
     sorted_movies.reverse()
+    movies_watched_by_a = user_to_movie_dict[A]
     if len(sorted_movies) > 10:
-        result[A].extend(sorted_movies[:10])
+        for movie in sorted_movies:
+            if movie not in movies_watched_by_a:
+                result[A].append(movie)
     else:
-        result[A].extend(sorted_movies)
+        for movie in sorted_movies:
+            if movie not in movies_watched_by_a:
+                result[A].append(movie)
 
     return result
 
@@ -182,6 +189,14 @@ def create_user_to_movie_names_list(recommendation_list, movies):
             movie_name = movies[movie_id]
             result[user].append(movie_name)
     return result
+
+def write_signature_matrix(signature_matrix):
+    f = open("signature_output.txt", "w+")
+    f.write("signature matrix \n")
+    f.write("Dimension: "  + str(len(signature_matrix)) + " " + str(len(signature_matrix[0])))
+    for signature in signature_matrix:
+        f.write("%s\n" %signature)
+    f.close()
 
 def write_to_output_file(recommendation_list, output_file):
     f = open(output_file, "w+")
@@ -224,6 +239,9 @@ if __name__ == "__main__":
     # for each partition run the signature matrix function
     user_signatures = parallized_user_to_movie.mapPartitions(get_signatures).sortByKey(True).collect()
     signature_matrix = convert_user_signatures_to_matrix(user_signatures)
+    # print("############ Signautre_Matrix", len(signature_matrix), len(signature_matrix[0]))
+    write_signature_matrix(signature_matrix)
+    # print(signature_matrix)
     parallized_signature_bands = sc.parallelize(signature_matrix, 4)
     # I have now parallized the signature into 4 bands of 5 rows in each band. Each row contains all 11 users. 
     candidate_pairs = parallized_signature_bands.mapPartitions(calculate_candidate_pairs)\
@@ -231,6 +249,8 @@ if __name__ == "__main__":
         .collect()
 
     cosine_sim = calc_cosine_similarity(candidate_pairs, user_movie_ratings, movies)
+    # print("cosine sim")
+    # print(cosine_sim)
     # recommendation_list = find_recommendations(cosine_sim, user_to_movie_dict)
     recommendation_list = find_recommendations(cosine_sim, user_to_movie_dict)
     user_to_movie_names_list = create_user_to_movie_names_list(recommendation_list, movies)
